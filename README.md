@@ -4,7 +4,15 @@ CLI to return the Ubuntu AMIs in AWS marketplace
 
 ## Basic setup
 
-Install the requirements:
+Install from [PyPi](https://pypi.org/project/aws-marketplace-ubuntu-scraper/)
+
+```
+$ pip install aws-marketplace-ubuntu-scraper
+```
+
+... OR ...
+
+Install the requirements manually:
 ```
 $ pip install -r requirements.txt
 ```
