@@ -1,0 +1,12 @@
+*.pyc
+
+venv/
+.cache/
+/.eggs/
+/.idea/
+/.tox/
+/__pycache__/
+/aws_marketplace_ubuntu_scraper.egg-info/
+/build/
+/dist/
+/geckodriver.log
