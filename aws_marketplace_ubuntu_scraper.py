@@ -17,9 +17,9 @@ CANONICAL_OWNER = "099720109477"
 CANONICAL_MARKETPLACE_PROFILE = "565feec9-3d43-413e-9760-c651546613f2"
 
 
-def get_regions(account_id, username, password):
+def get_regions(account_id, username, password, headless):
     driver_options = Options()
-    driver_options.headless = True
+    driver_options.headless = headless
     driver = webdriver.Firefox(options=driver_options)
     wait = webdriver.support.ui.WebDriverWait(driver, 10)
     driver.get("https://{}.signin.aws.amazon.com/console".format(account_id))
@@ -79,16 +79,20 @@ def get_ami_details(region_client, ami, quickstart_slot, ami_id):
     help="IAM User account ID",
 )
 @click.option(
-    "--iam-username", envvar="IAM_USERNAME", required=True, help="IAM username"
+        "--iam-username", envvar="IAM_USERNAME", required=True,
+        help="IAM username"
 )
 @click.option(
-    "--iam-password", envvar="IAM_PASSWORD", required=True, help="IAM User account ID"
+        "--iam-password", envvar="IAM_PASSWORD", required=True,
+        help="IAM User account ID"
 )
-def quicklaunch(iam_account_id, iam_username, iam_password):
+@click.option('--headless/--no-headless', default=True,
+              help='Use selenium in headless mode to avoid Firefox browser opening')
+def quicklaunch(iam_account_id, iam_username, iam_password, headless):
     ubuntu_quickstart_entries = OrderedDict()
-    region_dict_list = get_regions(iam_account_id, iam_username, iam_password)
+    region_dict_list = get_regions(iam_account_id, iam_username, iam_password, headless)
     driver_options = Options()
-    driver_options.headless = True
+    driver_options.headless = headless
 
     for region_dict in region_dict_list:
         region_identifier = region_dict["id"]
