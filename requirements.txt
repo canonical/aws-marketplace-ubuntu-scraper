@@ -5,3 +5,5 @@ click
 pytest
 selenium
 selenium-wire
+requests
+beautifulsoup4

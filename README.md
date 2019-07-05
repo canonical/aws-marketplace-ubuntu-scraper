@@ -27,7 +27,12 @@ Run the application:
 ```
 $ python -m aws_marketplace_ubuntu_scraper --help
 
-$ python -m aws_marketplace_ubuntu_scraper --iam-account-id="YOUR IAM ACCOUNT ID" --iam-username="YOUR IAM USERNAME" --iam-password="YOUR IAM PASSSWORD"
+# Print details of the Ubuntu quicklaunch entries for each region
+$ python -m aws_marketplace_ubuntu_scraper quicklaunch --iam-account-id="YOUR IAM ACCOUNT ID" --iam-username="YOUR IAM USERNAME" --iam-password="YOUR IAM PASSSWORD"
+
+# Print details of the Ubuntu marketplace listings
+$ python -m aws_marketplace_ubuntu_scraper marketplace
+
 ```
 
 To run the tests:
