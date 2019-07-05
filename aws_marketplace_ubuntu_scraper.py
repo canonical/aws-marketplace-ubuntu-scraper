@@ -18,7 +18,9 @@ CANONICAL_MARKETPLACE_PROFILE = "565feec9-3d43-413e-9760-c651546613f2"
 
 
 def get_regions(account_id, username, password):
-    driver = webdriver.Firefox()
+    driver_options = Options()
+    driver_options.headless = True
+    driver = webdriver.Firefox(options=driver_options)
     wait = webdriver.support.ui.WebDriverWait(driver, 10)
     driver.get("https://{}.signin.aws.amazon.com/console".format(account_id))
     username_element = driver.find_element_by_id("username")
@@ -85,6 +87,8 @@ def get_ami_details(region_client, ami, quickstart_slot, ami_id):
 def quicklaunch(iam_account_id, iam_username, iam_password):
     ubuntu_quickstart_entries = OrderedDict()
     region_dict_list = get_regions(iam_account_id, iam_username, iam_password)
+    driver_options = Options()
+    driver_options.headless = True
 
     for region_dict in region_dict_list:
         region_identifier = region_dict["id"]
@@ -92,7 +96,7 @@ def quicklaunch(iam_account_id, iam_username, iam_password):
         region_session = boto3.Session(region_name=region_identifier)
         region_client = region_session.client("ec2")
 
-        driver = webdriver.Firefox()
+        driver = webdriver.Firefox(options=driver_options)
         wait = webdriver.support.ui.WebDriverWait(driver, 20)
         driver.get("https://{}.signin.aws.amazon.com/console".format(iam_account_id))
         username_element = driver.find_element_by_id("username")
