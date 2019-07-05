@@ -79,15 +79,16 @@ def get_ami_details(region_client, ami, quickstart_slot, ami_id):
     help="IAM User account ID",
 )
 @click.option(
-        "--iam-username", envvar="IAM_USERNAME", required=True,
-        help="IAM username"
+    "--iam-username", envvar="IAM_USERNAME", required=True, help="IAM username"
 )
 @click.option(
-        "--iam-password", envvar="IAM_PASSWORD", required=True,
-        help="IAM User account ID"
+    "--iam-password", envvar="IAM_PASSWORD", required=True, help="IAM User account ID"
 )
-@click.option('--headless/--no-headless', default=True,
-              help='Use selenium in headless mode to avoid Firefox browser opening')
+@click.option(
+    "--headless/--no-headless",
+    default=True,
+    help="Use selenium in headless mode to avoid Firefox browser opening",
+)
 def quicklaunch(iam_account_id, iam_username, iam_password, headless):
     ubuntu_quickstart_entries = OrderedDict()
     region_dict_list = get_regions(iam_account_id, iam_username, iam_password, headless)
@@ -206,14 +207,16 @@ def quicklaunch(iam_account_id, iam_username, iam_password, headless):
 @click.command()
 def marketplace():
     public_profile_url_base = "https://aws.amazon.com/marketplace/seller-profile"
-    public_profile_url = "{}?id={}".format(public_profile_url_base, CANONICAL_MARKETPLACE_PROFILE)
+    public_profile_url = "{}?id={}".format(
+        public_profile_url_base, CANONICAL_MARKETPLACE_PROFILE
+    )
     response = requests.get(public_profile_url)
     page_content = response.content
     page_soup = BeautifulSoup(page_content, features="html.parser")
     page_link_elements = page_soup.select("div.pagination-bar ul.pagination li a")
     page_links = set()
     for page_link_element in page_link_elements:
-        href = page_link_element.get('href', None)
+        href = page_link_element.get("href", None)
         if href:
             page_links.add("{}{}".format(public_profile_url_base, href))
 
@@ -226,34 +229,66 @@ def marketplace():
         response = requests.get(page_link)
         page_content = response.content
         page_soup = BeautifulSoup(page_content, features="html.parser")
-        product_elements = page_soup.select("div.vendor-products article.products div.col-xs-10")
+        product_elements = page_soup.select(
+            "div.vendor-products article.products div.col-xs-10"
+        )
         for product_element in product_elements:
             product_order = product_order + 1
             product_in_page_order = product_in_page_order + 1
 
             product_title_element = product_element.select_one("div.row h1")
-            product_title = product_title_element.get_text().strip() if product_title_element else ""
+            product_title = (
+                product_title_element.get_text().strip()
+                if product_title_element
+                else ""
+            )
 
-            product_version_element = product_element.select_one("ul.info li:nth-child(2)")
-            product_version = product_version_element.get_text().strip() if product_version_element else ""
+            product_version_element = product_element.select_one(
+                "ul.info li:nth-child(2)"
+            )
+            product_version = (
+                product_version_element.get_text().strip()
+                if product_version_element
+                else ""
+            )
 
             product_pricing_element = product_element.select_one("p.pricing span.price")
-            product_pricing = product_pricing_element.get_text().strip() if product_pricing_element else ""
+            product_pricing = (
+                product_pricing_element.get_text().strip()
+                if product_pricing_element
+                else ""
+            )
 
             product_info_element = product_element.select_one("p.delivery")
-            product_info = product_info_element.get_text().strip() if product_info_element else ""
+            product_info = (
+                product_info_element.get_text().strip() if product_info_element else ""
+            )
 
             product_description_element = product_element.select_one("p.description")
-            product_description = product_description_element.get_text().strip() if product_description_element else ""
+            product_description = (
+                product_description_element.get_text().strip()
+                if product_description_element
+                else ""
+            )
 
             # Get more detailed information on this listing
             marketplace_url_element = product_title_element.select_one("a")
-            marketplace_url = marketplace_url_element.get('href')
-            listing_response = requests.get("https://aws.amazon.com{}".format(marketplace_url))
+            marketplace_url = marketplace_url_element.get("href")
+            listing_response = requests.get(
+                "https://aws.amazon.com{}".format(marketplace_url)
+            )
             listing_page_content = listing_response.content
-            listing_page_soup = BeautifulSoup(listing_page_content, features="html.parser")
-            fullfillment_options_element = listing_page_soup.select_one("div.pdp-attributes div.fulfillment-options ul li:nth-child(1)")
-            fullfillment_options = fullfillment_options_element.get_text().strip() if fullfillment_options_element else ""
+            listing_page_soup = BeautifulSoup(
+                listing_page_content, features="html.parser"
+            )
+            fullfillment_options_element = listing_page_soup.select_one(
+                "div.pdp-attributes div.fulfillment-options ul li:nth-child(1)"
+            )
+            fullfillment_options = (
+                fullfillment_options_element.get_text().strip()
+                if fullfillment_options_element
+                else ""
+            )
 
             release_version = ""
             serial = ""
@@ -283,7 +318,9 @@ def marketplace():
                 "marketplace_url": marketplace_url,
                 "type": fullfillment_options,
             }
-            product_unique_identifier = "{} ({}) - {}".format(product_title, fullfillment_options, serial)
+            product_unique_identifier = "{} ({}) - {}".format(
+                product_title, fullfillment_options, serial
+            )
             products[product_unique_identifier] = product
 
         product_in_page_order = 0
@@ -291,15 +328,15 @@ def marketplace():
     for product_title, product in products.items():
         print(product_title)
         print(
-                "\t{} {} {} {} \n\t\tSlot: {} \n\t\t Title: {}\n\t\t Description: {})".format(
-                        product["release_version"],
-                        product["serial"],
-                        product["version"],
-                        product["type"],
-                        product["product_order"],
-                        product["title"],
-                        product["description"],
-                )
+            "\t{} {} {} {} \n\t\tSlot: {} \n\t\t Title: {}\n\t\t Description: {})".format(
+                product["release_version"],
+                product["serial"],
+                product["version"],
+                product["type"],
+                product["product_order"],
+                product["title"],
+                product["description"],
+            )
         )
 
 
