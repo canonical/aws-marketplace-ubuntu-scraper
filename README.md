@@ -19,7 +19,9 @@ $ pip install -r requirements.txt
 
 You will also need [Firefox](https://www.mozilla.org/en-US/firefox/new/) installed and [geckodriver](https://github.com/mozilla/geckodriver/releases) available in your PATH.
 
-I recommend you create a new IAM user with no permissions granted.
+I recommend you create a new IAM user with no permissions granted. 
+Ensure that you have opted in to all the AWS regions that are opt in only and 
+that you want quicklaunch listings for. 
 
 You will also need to set up your aws credentials for use with [boto3](https://boto3.amazonaws.com/v1/documentation/api/latest/guide/configuration.html)
 
