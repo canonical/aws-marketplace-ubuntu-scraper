@@ -10,6 +10,7 @@ import requests
 from collections import OrderedDict
 
 from bs4 import BeautifulSoup
+from joblib import Parallel, delayed
 from selenium.webdriver.firefox.options import Options
 from seleniumwire import webdriver
 
@@ -220,18 +221,24 @@ def marketplace():
         if href:
             page_links.add("{}{}".format(public_profile_url_base, href))
 
-    products = OrderedDict()
-    product_order = 0
-    page_order = 0
-    product_in_page_order = 0
-    for page_link in sorted(page_links):
-        page_order = page_order + 1
-        response = requests.get(page_link)
+    def scrape_marketplace(marketplace_url):
+        page_count = ""
+        page_count_regex = r".*?page=(?P<page_count>\d?)"
+        match = re.match(page_count_regex, marketplace_url)
+
+        if match:
+            attrs = match.groupdict()
+            page_count = attrs.get("page_count", None)
+
+        response = requests.get(marketplace_url)
         page_content = response.content
         page_soup = BeautifulSoup(page_content, features="html.parser")
         product_elements = page_soup.select(
             "div.vendor-products article.products div.col-xs-10"
         )
+        products = []
+        product_order = (int(page_count) * 10) - 10
+        product_in_page_order = 0
         for product_element in product_elements:
             product_order = product_order + 1
             product_in_page_order = product_in_page_order + 1
@@ -304,7 +311,11 @@ def marketplace():
                 release_version = attrs.get("release_version", None)
                 serial = attrs.get("serial", None)
 
+            product_unique_identifier = "{} ({}) - {}".format(
+                product_title, fullfillment_options, serial
+            )
             product = {
+                "unique_identifier": product_unique_identifier,
                 "version": product_version,
                 "release_version": release_version,
                 "title": product_title,
@@ -312,32 +323,39 @@ def marketplace():
                 "info": product_info,
                 "description": product_description,
                 "product_in_page_order": product_in_page_order,
-                "page_order": page_order,
+                "page_order": page_count,
                 "product_order": product_order,
                 "serial": serial,
                 "marketplace_url": marketplace_url,
                 "type": fullfillment_options,
             }
-            product_unique_identifier = "{} ({}) - {}".format(
-                product_title, fullfillment_options, serial
-            )
-            products[product_unique_identifier] = product
+            products.append(product)
+        return (page_count, products)
 
-        product_in_page_order = 0
-
-    for product_title, product in products.items():
-        print(product_title)
-        print(
-            "\t{} {} {} {} \n\t\tSlot: {} \n\t\t Title: {}\n\t\t Description: {})".format(
-                product["release_version"],
-                product["serial"],
-                product["version"],
-                product["type"],
-                product["product_order"],
-                product["title"],
-                product["description"],
+    parallel_products = Parallel(n_jobs=-1)(
+        delayed(scrape_marketplace)(page_link) for page_link in page_links
+    )
+    sorted_parallel_products = sorted(parallel_products, key=lambda tup: tup[0])
+    for page, products_per_page in sorted_parallel_products:
+        for product in products_per_page:
+            print(
+                "\n{}\n\t{} {} {}\n\t\t"
+                "Type: {}\n\t\t"
+                "Page: {} \n\t\t"
+                "Slot: {} \n\t\t"
+                "Title: {}\n\t\t"
+                "Description: \n\t\t\t\t{})".format(
+                    product["unique_identifier"],
+                    product["release_version"],
+                    product["serial"],
+                    product["version"],
+                    product["type"],
+                    product["page_order"],
+                    product["product_order"],
+                    product["title"],
+                    product["description"].replace("\n", "\n\t\t\t\t"),
+                )
             )
-        )
 
 
 @click.group()

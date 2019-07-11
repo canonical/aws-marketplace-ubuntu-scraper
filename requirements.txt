@@ -7,3 +7,4 @@ selenium
 selenium-wire
 requests
 beautifulsoup4
+joblib
