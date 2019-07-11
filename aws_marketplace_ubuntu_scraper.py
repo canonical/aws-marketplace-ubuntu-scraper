@@ -40,38 +40,6 @@ def get_regions(account_id, username, password, headless):
     return region_list
 
 
-def get_ami_details(region_client, ami, quickstart_slot, ami_id):
-    # Get the ami owner
-    resp = region_client.describe_images(
-        Owners=[CANONICAL_OWNER], Filters=[{"Name": "image-id", "Values": [ami_id]}]
-    )
-    resp_len = len(resp.get("Images", []))
-
-    if resp_len:  # This is a Canonical AMI
-        name_regex = (
-            r"ubuntu/images(-(?P<imgtype_path>[\w-]+))?/"
-            r"((?P<virt_storage>\w+(-\w+)?)/)?"
-            r"ubuntu-(?P<suite>\w+)-"
-            r"((?P<release_version>\d\d\.\d\d)-)?"
-            r"((?P<upload_type>\w+)-)?"
-            r"(?P<arch>\w+)-server-"
-            r"(?P<serial>\d+(\.\d{1,2})?)"
-            r"(\-(?P<custom>\w+))?"
-        )
-        name = resp["Images"][0]["Name"]
-        match = re.match(name_regex, name)
-        if not match:
-            raise Exception("Image name {} could not be parsed".format(name))
-        attrs = match.groupdict()
-        ami["quickstart_slot"] = quickstart_slot
-        ami["ami_id"] = ami_id
-        for key, value in attrs.items():
-            ami[key] = value
-        return ami
-    else:
-        return None
-
-
 @click.command()
 @click.option(
     "--iam-account-id",
@@ -91,20 +59,51 @@ def get_ami_details(region_client, ami, quickstart_slot, ami_id):
     help="Use selenium in headless mode to avoid Firefox browser opening",
 )
 def quicklaunch(iam_account_id, iam_username, iam_password, headless):
-    ubuntu_quickstart_entries = OrderedDict()
     region_dict_list = get_regions(iam_account_id, iam_username, iam_password, headless)
     driver_options = Options()
     driver_options.headless = headless
 
-    for region_dict in region_dict_list:
-        region_identifier = region_dict["id"]
+    def scrape_quicklaunch_regions(region_dict):
+        def get_ami_details(region_client, ami, quickstart_slot, ami_id):
+            # Get the ami details
+            resp = region_client.describe_images(
+                    Owners=[CANONICAL_OWNER],
+                    Filters=[{"Name": "image-id", "Values": [ami_id]}]
+            )
+            resp_len = len(resp.get("Images", []))
+            if resp_len:  # This is a Canonical AMI
+                name_regex = (
+                    r"ubuntu/images(-(?P<imgtype_path>[\w-]+))?/"
+                    r"((?P<virt_storage>\w+(-\w+)?)/)?"
+                    r"ubuntu-(?P<suite>\w+)-"
+                    r"((?P<release_version>\d\d\.\d\d)-)?"
+                    r"((?P<upload_type>\w+)-)?"
+                    r"(?P<arch>\w+)-server-"
+                    r"(?P<serial>\d+(\.\d{1,2})?)"
+                    r"(\-(?P<custom>\w+))?"
+                )
+                name = resp["Images"][0]["Name"]
+                match = re.match(name_regex, name)
+                if not match:
+                    raise Exception(
+                        "Image name {} could not be parsed".format(name))
+                attrs = match.groupdict()
+                ami["quickstart_slot"] = quickstart_slot
+                ami["ami_id"] = ami_id
+                for key, value in attrs.items():
+                    ami[key] = value
+                return ami
+            else:
+                return None
 
+        region_identifier = region_dict["id"]
         region_session = boto3.Session(region_name=region_identifier)
         region_client = region_session.client("ec2")
 
         driver = webdriver.Firefox(options=driver_options)
         wait = webdriver.support.ui.WebDriverWait(driver, 20)
-        driver.get("https://{}.signin.aws.amazon.com/console".format(iam_account_id))
+        driver.get(
+            "https://{}.signin.aws.amazon.com/console".format(iam_account_id))
         username_element = driver.find_element_by_id("username")
         username_element.send_keys(iam_username)
         password_element = driver.find_element_by_id("password")
@@ -115,44 +114,54 @@ def quicklaunch(iam_account_id, iam_username, iam_password, headless):
         driver.find_element_by_id("nav-regionMenu").click()
         # Are we on the correct region already?
         region_full_name = "{} ({})".format(
-            region_dict["name"], region_dict["location"]
+                region_dict["name"], region_dict["location"]
         )
-        current_region_element = driver.find_element_by_class_name("current-region")
+        current_region_element = driver.find_element_by_class_name(
+            "current-region")
         if current_region_element.text != region_full_name:
             wait.until(
-                lambda driver: driver.find_element_by_xpath(
-                    '//a[@data-region-id="{}"]'.format(region_identifier)
-                )
+                    lambda driver: driver.find_element_by_xpath(
+                            '//a[@data-region-id="{}"]'.format(
+                                region_identifier)
+                    )
             )
             driver.find_element_by_xpath(
-                '//a[@data-region-id="{}"]'.format(region_identifier)
+                    '//a[@data-region-id="{}"]'.format(region_identifier)
             ).click()
         else:
             driver.find_element_by_id("nav-regionMenu").click()
 
-        wait.until(lambda driver: driver.find_element_by_id("nav-servicesMenu"))
+        wait.until(
+            lambda driver: driver.find_element_by_id("nav-servicesMenu"))
         driver.find_element_by_id("nav-servicesMenu").click()
         wait.until(
-            lambda driver: driver.find_element_by_xpath('//li[@data-service-id="ec2"]')
+                lambda driver: driver.find_element_by_xpath(
+                    '//li[@data-service-id="ec2"]')
         )
         driver.find_element_by_xpath('//li[@data-service-id="ec2"]/a').click()
         wait.until(
-            lambda driver: driver.find_element_by_id("gwt-debug-createInstanceView")
+                lambda driver: driver.find_element_by_id(
+                    "gwt-debug-createInstanceView")
         )
-        driver.find_element_by_xpath("//*[contains(text(), 'Launch Instance')]").click()
+        driver.find_element_by_xpath(
+            "//*[contains(text(), 'Launch Instance')]").click()
         wait.until(
-            lambda driver: driver.find_element_by_id("gwt-debug-tab-QUICKSTART_AMIS")
+                lambda driver: driver.find_element_by_id(
+                    "gwt-debug-tab-QUICKSTART_AMIS")
         )
         driver.find_element_by_id("gwt-debug-tab-QUICKSTART_AMIS").click()
         wait.until(
-            lambda driver: driver.find_element_by_id("gwt-debug-tab-QUICKSTART_AMIS")
+                lambda driver: driver.find_element_by_id(
+                    "gwt-debug-tab-QUICKSTART_AMIS")
         )
-        time.sleep(5)
-        wait.until(lambda driver: driver.find_element_by_id("gwt-debug-paginatorLabel"))
+        wait.until(lambda driver: driver.find_element_by_id(
+            "gwt-debug-paginatorLabel"))
+        # wait until JSON request is complete loads.
+        # 3 seconds seems to be enough for all regions
+        time.sleep(3)
         for request in list(driver.requests):
             if "call=getQuickstartList" in request.path and request.response:
                 region_quickstart_entries = json.loads(request.response.body)
-
                 ubuntu_quick_start_listings = []
                 quickstart_slot = 0
                 for ami in region_quickstart_entries["amiList"]:
@@ -160,37 +169,43 @@ def quicklaunch(iam_account_id, iam_username, iam_password, headless):
                     if ami["platform"] == "ubuntu":
                         if ami.get("imageId64", None):
                             canonical_amd64_ami = get_ami_details(
-                                region_client,
-                                ami.copy(),
-                                quickstart_slot,
-                                ami.get("imageId64"),
+                                    region_client,
+                                    ami.copy(),
+                                    quickstart_slot,
+                                    ami.get("imageId64"),
                             )
                             if canonical_amd64_ami:
-                                ubuntu_quick_start_listings.append(canonical_amd64_ami)
+                                ubuntu_quick_start_listings.append(
+                                    canonical_amd64_ami)
 
                         if ami.get("imageIdArm64", None):
                             canonical_arm64_ami = get_ami_details(
-                                region_client,
-                                ami.copy(),
-                                quickstart_slot,
-                                ami.get("imageIdArm64"),
+                                    region_client,
+                                    ami.copy(),
+                                    quickstart_slot,
+                                    ami.get("imageIdArm64"),
                             )
                             if canonical_arm64_ami:
-                                ubuntu_quick_start_listings.append(canonical_arm64_ami)
+                                ubuntu_quick_start_listings.append(
+                                    canonical_arm64_ami)
 
-                ubuntu_quickstart_entries[
-                    region_identifier
-                ] = ubuntu_quick_start_listings
                 # We only need one list so we can break here
                 break
 
         driver.delete_all_cookies()
         driver.close()
         driver.quit()
+        return (region_identifier, ubuntu_quick_start_listings)
 
-    for region in sorted(ubuntu_quickstart_entries.keys()):
+    parallel_quickstart_entries = Parallel(n_jobs=-1)(
+            delayed(scrape_quicklaunch_regions)(region_dict) for region_dict in region_dict_list
+    )
+
+    sorted_parallel_quickstart_entries = sorted(parallel_quickstart_entries,
+                                      key=lambda tup: tup[0])
+    for region, ubuntu_quickstart_entries in sorted_parallel_quickstart_entries:
         print(region)
-        for ubuntu_quickstart_entry in ubuntu_quickstart_entries[region]:
+        for ubuntu_quickstart_entry in ubuntu_quickstart_entries:
             print(
                 "{} {} {} {} (Slot: {} , Title: {}, Description: {})".format(
                     ubuntu_quickstart_entry["release_version"],
