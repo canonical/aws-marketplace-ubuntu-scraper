@@ -67,8 +67,8 @@ def quicklaunch(iam_account_id, iam_username, iam_password, headless):
         def get_ami_details(region_client, ami, quickstart_slot, ami_id):
             # Get the ami details
             resp = region_client.describe_images(
-                    Owners=[CANONICAL_OWNER],
-                    Filters=[{"Name": "image-id", "Values": [ami_id]}]
+                Owners=[CANONICAL_OWNER],
+                Filters=[{"Name": "image-id", "Values": [ami_id]}],
             )
             resp_len = len(resp.get("Images", []))
             if resp_len:  # This is a Canonical AMI
@@ -85,8 +85,7 @@ def quicklaunch(iam_account_id, iam_username, iam_password, headless):
                 name = resp["Images"][0]["Name"]
                 match = re.match(name_regex, name)
                 if not match:
-                    raise Exception(
-                        "Image name {} could not be parsed".format(name))
+                    raise Exception("Image name {} could not be parsed".format(name))
                 attrs = match.groupdict()
                 ami["quickstart_slot"] = quickstart_slot
                 ami["ami_id"] = ami_id
@@ -102,8 +101,7 @@ def quicklaunch(iam_account_id, iam_username, iam_password, headless):
 
         driver = webdriver.Firefox(options=driver_options)
         wait = webdriver.support.ui.WebDriverWait(driver, 20)
-        driver.get(
-            "https://{}.signin.aws.amazon.com/console".format(iam_account_id))
+        driver.get("https://{}.signin.aws.amazon.com/console".format(iam_account_id))
         username_element = driver.find_element_by_id("username")
         username_element.send_keys(iam_username)
         password_element = driver.find_element_by_id("password")
@@ -114,48 +112,39 @@ def quicklaunch(iam_account_id, iam_username, iam_password, headless):
         driver.find_element_by_id("nav-regionMenu").click()
         # Are we on the correct region already?
         region_full_name = "{} ({})".format(
-                region_dict["name"], region_dict["location"]
+            region_dict["name"], region_dict["location"]
         )
-        current_region_element = driver.find_element_by_class_name(
-            "current-region")
+        current_region_element = driver.find_element_by_class_name("current-region")
         if current_region_element.text != region_full_name:
             wait.until(
-                    lambda driver: driver.find_element_by_xpath(
-                            '//a[@data-region-id="{}"]'.format(
-                                region_identifier)
-                    )
+                lambda driver: driver.find_element_by_xpath(
+                    '//a[@data-region-id="{}"]'.format(region_identifier)
+                )
             )
             driver.find_element_by_xpath(
-                    '//a[@data-region-id="{}"]'.format(region_identifier)
+                '//a[@data-region-id="{}"]'.format(region_identifier)
             ).click()
         else:
             driver.find_element_by_id("nav-regionMenu").click()
 
-        wait.until(
-            lambda driver: driver.find_element_by_id("nav-servicesMenu"))
+        wait.until(lambda driver: driver.find_element_by_id("nav-servicesMenu"))
         driver.find_element_by_id("nav-servicesMenu").click()
         wait.until(
-                lambda driver: driver.find_element_by_xpath(
-                    '//li[@data-service-id="ec2"]')
+            lambda driver: driver.find_element_by_xpath('//li[@data-service-id="ec2"]')
         )
         driver.find_element_by_xpath('//li[@data-service-id="ec2"]/a').click()
         wait.until(
-                lambda driver: driver.find_element_by_id(
-                    "gwt-debug-createInstanceView")
+            lambda driver: driver.find_element_by_id("gwt-debug-createInstanceView")
         )
-        driver.find_element_by_xpath(
-            "//*[contains(text(), 'Launch Instance')]").click()
+        driver.find_element_by_xpath("//*[contains(text(), 'Launch Instance')]").click()
         wait.until(
-                lambda driver: driver.find_element_by_id(
-                    "gwt-debug-tab-QUICKSTART_AMIS")
+            lambda driver: driver.find_element_by_id("gwt-debug-tab-QUICKSTART_AMIS")
         )
         driver.find_element_by_id("gwt-debug-tab-QUICKSTART_AMIS").click()
         wait.until(
-                lambda driver: driver.find_element_by_id(
-                    "gwt-debug-tab-QUICKSTART_AMIS")
+            lambda driver: driver.find_element_by_id("gwt-debug-tab-QUICKSTART_AMIS")
         )
-        wait.until(lambda driver: driver.find_element_by_id(
-            "gwt-debug-paginatorLabel"))
+        wait.until(lambda driver: driver.find_element_by_id("gwt-debug-paginatorLabel"))
         # wait until JSON request is complete loads.
         # 3 seconds seems to be enough for all regions
         time.sleep(3)
@@ -169,25 +158,23 @@ def quicklaunch(iam_account_id, iam_username, iam_password, headless):
                     if ami["platform"] == "ubuntu":
                         if ami.get("imageId64", None):
                             canonical_amd64_ami = get_ami_details(
-                                    region_client,
-                                    ami.copy(),
-                                    quickstart_slot,
-                                    ami.get("imageId64"),
+                                region_client,
+                                ami.copy(),
+                                quickstart_slot,
+                                ami.get("imageId64"),
                             )
                             if canonical_amd64_ami:
-                                ubuntu_quick_start_listings.append(
-                                    canonical_amd64_ami)
+                                ubuntu_quick_start_listings.append(canonical_amd64_ami)
 
                         if ami.get("imageIdArm64", None):
                             canonical_arm64_ami = get_ami_details(
-                                    region_client,
-                                    ami.copy(),
-                                    quickstart_slot,
-                                    ami.get("imageIdArm64"),
+                                region_client,
+                                ami.copy(),
+                                quickstart_slot,
+                                ami.get("imageIdArm64"),
                             )
                             if canonical_arm64_ami:
-                                ubuntu_quick_start_listings.append(
-                                    canonical_arm64_ami)
+                                ubuntu_quick_start_listings.append(canonical_arm64_ami)
 
                 # We only need one list so we can break here
                 break
@@ -198,11 +185,13 @@ def quicklaunch(iam_account_id, iam_username, iam_password, headless):
         return (region_identifier, ubuntu_quick_start_listings)
 
     parallel_quickstart_entries = Parallel(n_jobs=-1)(
-            delayed(scrape_quicklaunch_regions)(region_dict) for region_dict in region_dict_list
+        delayed(scrape_quicklaunch_regions)(region_dict)
+        for region_dict in region_dict_list
     )
 
-    sorted_parallel_quickstart_entries = sorted(parallel_quickstart_entries,
-                                      key=lambda tup: tup[0])
+    sorted_parallel_quickstart_entries = sorted(
+        parallel_quickstart_entries, key=lambda tup: tup[0]
+    )
     for region, ubuntu_quickstart_entries in sorted_parallel_quickstart_entries:
         print(region)
         for ubuntu_quickstart_entry in ubuntu_quickstart_entries:
