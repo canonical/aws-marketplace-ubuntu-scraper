@@ -94,8 +94,8 @@ def quicklaunch(iam_account_id, iam_username, iam_password, headless):
                 return ami
             else:
                 return None
-
         region_identifier = region_dict["id"]
+        print("scraping {} ...".format(region_identifier))
         region_session = boto3.Session(region_name=region_identifier)
         region_client = region_session.client("ec2")
 
@@ -111,8 +111,8 @@ def quicklaunch(iam_account_id, iam_username, iam_password, headless):
         wait.until(lambda driver: driver.find_element_by_id("nav-regionMenu"))
         driver.find_element_by_id("nav-regionMenu").click()
         # Are we on the correct region already?
-        region_full_name = "{} ({})".format(
-            region_dict["name"], region_dict["location"]
+        region_full_name = "{} ({}){}".format(
+            region_dict["name"], region_dict["location"], region_identifier
         )
         current_region_element = driver.find_element_by_class_name("current-region")
         if current_region_element.text != region_full_name:
@@ -134,9 +134,21 @@ def quicklaunch(iam_account_id, iam_username, iam_password, headless):
         )
         driver.find_element_by_xpath('//li[@data-service-id="ec2"]/a').click()
         wait.until(
-            lambda driver: driver.find_element_by_id("gwt-debug-createInstanceView")
+            lambda driver: driver.find_element_by_xpath('//iframe[contains(@id, "-react-frame")]')
         )
-        driver.find_element_by_xpath("//*[contains(text(), 'Launch Instance')]").click()
+        dashboard_iframe = driver.find_element_by_xpath('//iframe[contains(@id, "-react-frame")]')
+        driver.switch_to.frame(dashboard_iframe)
+        wait.until(
+            lambda driver: driver.find_element_by_class_name(
+                "awsui-button-dropdown-container")
+        )
+        print("{} - Opening launch instance page".format(region_identifier))
+        driver.find_element_by_class_name("awsui-button-dropdown-container").click()
+        wait.until(
+            lambda driver: driver.find_element_by_xpath("//*[contains(@href, '#LaunchInstanceWizard:')]")
+        )
+        driver.find_element_by_xpath("//*[contains(@href, '#LaunchInstanceWizard:')]").click()
+        driver.switch_to.default_content()
         wait.until(
             lambda driver: driver.find_element_by_id("gwt-debug-tab-QUICKSTART_AMIS")
         )
@@ -147,6 +159,7 @@ def quicklaunch(iam_account_id, iam_username, iam_password, headless):
         wait.until(lambda driver: driver.find_element_by_id("gwt-debug-paginatorLabel"))
         # wait until JSON request is complete loads.
         # 3 seconds seems to be enough for all regions
+        print("{} - Querying quickstart list".format(region_identifier))
         time.sleep(3)
         for request in list(driver.requests):
             if "call=getQuickstartList" in request.path and request.response:
@@ -183,8 +196,8 @@ def quicklaunch(iam_account_id, iam_username, iam_password, headless):
         driver.close()
         driver.quit()
         return (region_identifier, ubuntu_quick_start_listings)
-
-    parallel_quickstart_entries = Parallel(n_jobs=-1)(
+    n_jobs = -1
+    parallel_quickstart_entries = Parallel(n_jobs=n_jobs)(
         delayed(scrape_quicklaunch_regions)(region_dict)
         for region_dict in region_dict_list
     )
@@ -255,7 +268,7 @@ def marketplace():
             )
 
             product_version_element = product_element.select_one(
-                "ul.info li:nth-child(2)"
+                "ul.info li:nth-child(1)"
             )
             product_version = (
                 product_version_element.get_text().strip()
@@ -330,7 +343,8 @@ def marketplace():
                 "page_order": page_count,
                 "product_order": product_order,
                 "serial": serial,
-                "marketplace_url": marketplace_url,
+                "marketplace_url":
+                    "https://aws.amazon.com{}".format(marketplace_url),
                 "type": fullfillment_options,
             }
             products.append(product)
@@ -340,15 +354,20 @@ def marketplace():
         delayed(scrape_marketplace)(page_link) for page_link in page_links
     )
     sorted_parallel_products = sorted(parallel_products, key=lambda tup: tup[0])
+    print("Public profile URL: {}".format(public_profile_url))
     for page, products_per_page in sorted_parallel_products:
         for product in products_per_page:
             print(
-                "\n{}\n\t{} {} {}\n\t\t"
+                "\n{}\n\t\t"
+                "Release: {}\n\t\t"
+                "Serial: {}\n\t\t"
+                "Version: {}\n\t\t"
                 "Type: {}\n\t\t"
                 "Page: {} \n\t\t"
                 "Slot: {} \n\t\t"
                 "Title: {}\n\t\t"
-                "Description: \n\t\t\t\t{})".format(
+                "Description: \n\t\t\t\t{}\n\t\t"
+                "URL: {}\n\t\t".format(
                     product["unique_identifier"],
                     product["release_version"],
                     product["serial"],
@@ -358,7 +377,9 @@ def marketplace():
                     product["product_order"],
                     product["title"],
                     product["description"].replace("\n", "\n\t\t\t\t"),
+                    product["marketplace_url"],
                 )
+
             )
 
 
