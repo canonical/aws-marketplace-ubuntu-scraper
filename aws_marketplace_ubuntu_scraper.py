@@ -15,10 +15,14 @@ from selenium.webdriver.firefox.options import Options
 from seleniumwire import webdriver
 
 CANONICAL_OWNER = "099720109477"
+AWS_UBUNTU_PRO_OWNER_ALIAS = "aws-marketplace"
+AWS_UBUNTU_DEEP_LEARNING_OWNER_ALIAS = "amazon"
 CANONICAL_MARKETPLACE_PROFILE = "565feec9-3d43-413e-9760-c651546613f2"
 
 
 def get_regions(account_id, username, password, headless):
+    # region_dict = {"name": "US East", "location": "N. Virginia", "id": "us-east-1" }
+    # return [region_dict]
     driver_options = Options()
     driver_options.headless = headless
     driver = webdriver.Firefox(options=driver_options)
@@ -67,31 +71,60 @@ def quicklaunch(iam_account_id, iam_username, iam_password, headless):
         def get_ami_details(region_client, ami, quickstart_slot, ami_id):
             # Get the ami details
             resp = region_client.describe_images(
-                Owners=[CANONICAL_OWNER],
                 Filters=[{"Name": "image-id", "Values": [ami_id]}],
             )
             resp_len = len(resp.get("Images", []))
-            if resp_len:  # This is a Canonical AMI
-                name_regex = (
-                    r"ubuntu/images(-(?P<imgtype_path>[\w-]+))?/"
-                    r"((?P<virt_storage>\w+(-\w+)?)/)?"
-                    r"ubuntu-(?P<suite>\w+)-"
-                    r"((?P<release_version>\d\d\.\d\d)-)?"
-                    r"((?P<upload_type>\w+)-)?"
-                    r"(?P<arch>\w+)-server-"
-                    r"(?P<serial>\d+(\.\d{1,2})?)"
-                    r"(\-(?P<custom>\w+))?"
-                )
-                name = resp["Images"][0]["Name"]
-                match = re.match(name_regex, name)
-                if not match:
-                    raise Exception("Image name {} could not be parsed".format(name))
-                attrs = match.groupdict()
-                ami["quickstart_slot"] = quickstart_slot
-                ami["ami_id"] = ami_id
-                for key, value in attrs.items():
-                    ami[key] = value
-                return ami
+            if resp_len:
+                image = resp["Images"][0]
+                image_owner = image.get("ImageOwnerAlias", image.get("OwnerId"))
+                name_regex = None
+                if image_owner == CANONICAL_OWNER:
+                    image_owner = "Canonical"
+                    # This is a Canonical AMI
+                    name_regex = (
+                        r"ubuntu/images(-(?P<imgtype_path>[\w-]+))?/"
+                        r"((?P<virt_storage>\w+(-\w+)?)/)?"
+                        r"ubuntu-(?P<suite>\w+)-"
+                        r"((?P<release_version>\d\d\.\d\d)-)?"
+                        r"((?P<upload_type>\w+)-)?"
+                        r"(?P<arch>\w+)-server-"
+                        r"(?P<serial>\d+(\.\d{1,2})?)"
+                        r"(\-(?P<custom>\w+))?"
+                    )
+                elif image_owner == AWS_UBUNTU_PRO_OWNER_ALIAS:
+                    # This is an AWS Ubuntu AMI - used for Ubuntu Pro listings
+                    # trusty-ua-tools-20191128-d984c693-feaa-4be0-bc34-2099410bc9cc-ami-075ab031d5a3404c6.4
+                    name_regex = (
+                        r".*?"
+                        r"(?P<serial>\d+(\.\d{1,2})?)"
+                        r"-.*?-"
+                        r"(?P<source_ami>ami-\w+).*?"
+                    )
+                elif image_owner == AWS_UBUNTU_DEEP_LEARNING_OWNER_ALIAS:
+                    # This is an AWS Ubuntu AMI - used for
+                    # Ubuntu Deep learning and SQL server listings
+                    # trusty-ua-tools-20191128-d984c693-feaa-4be0-bc34-2099410bc9cc-ami-075ab031d5a3404c6.4
+                    # ubuntu-xenial-16.04-amd64-server-20190212-SQL_2017_Standard-2019.04.02
+                    name_regex = (
+                        r"ubuntu-(?P<suite>\w+)-"
+                        r"((?P<release_version>\d\d\.\d\d)-)?"
+                        r"(?P<arch>\w+)-server-"
+                        r"(?P<serial>\d+(\.\d{1,2})?)"
+                        r"-.*?"
+                    )
+                if name_regex:
+                    ami["quickstart_slot"] = quickstart_slot
+                    ami["ami_id"] = ami_id
+                    ami["owner"] = image_owner
+                    name = image["Name"]
+                    match = re.match(name_regex, name)
+                    if match:
+                        attrs = match.groupdict()
+                        for key, value in attrs.items():
+                            ami[key] = value
+                    return ami
+                else:
+                    return None
             else:
                 return None
         region_identifier = region_dict["id"]
@@ -164,6 +197,8 @@ def quicklaunch(iam_account_id, iam_username, iam_password, headless):
         for request in list(driver.requests):
             if "call=getQuickstartList" in request.path and request.response:
                 region_quickstart_entries = json.loads(request.response.body)
+                with open('{}-getQuickstartList.json'.format(region_identifier), 'w') as outfile:
+                    json.dump(region_quickstart_entries, outfile, indent=4)
                 ubuntu_quick_start_listings = []
                 quickstart_slot = 0
                 for ami in region_quickstart_entries["amiList"]:
@@ -205,18 +240,20 @@ def quicklaunch(iam_account_id, iam_username, iam_password, headless):
     sorted_parallel_quickstart_entries = sorted(
         parallel_quickstart_entries, key=lambda tup: tup[0]
     )
+
     for region, ubuntu_quickstart_entries in sorted_parallel_quickstart_entries:
         print(region)
         for ubuntu_quickstart_entry in ubuntu_quickstart_entries:
             print(
-                "{} {} {} {} (Slot: {} , Title: {}, Description: {})".format(
-                    ubuntu_quickstart_entry["release_version"],
-                    ubuntu_quickstart_entry["serial"],
-                    ubuntu_quickstart_entry["arch"],
-                    ubuntu_quickstart_entry["ami_id"],
-                    ubuntu_quickstart_entry["quickstart_slot"],
-                    ubuntu_quickstart_entry["title"],
-                    ubuntu_quickstart_entry["description"],
+                "{} \n\t{} {} {} {} {} \n\t\t(Slot: {} , Description: {})".format(
+                    ubuntu_quickstart_entry.get("title", ""),
+                    ubuntu_quickstart_entry.get("release_version", ""),
+                    ubuntu_quickstart_entry.get("serial", ""),
+                    ubuntu_quickstart_entry.get("arch", ""),
+                    ubuntu_quickstart_entry.get("ami_id", ""),
+                    ubuntu_quickstart_entry.get("owner", ""),
+                    ubuntu_quickstart_entry.get("quickstart_slot", ""),
+                    ubuntu_quickstart_entry.get("description", ""),
                 )
             )
         print()
