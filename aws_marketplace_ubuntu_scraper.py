@@ -127,6 +127,7 @@ def quicklaunch(iam_account_id, iam_username, iam_password, headless):
                     return None
             else:
                 return None
+
         region_identifier = region_dict["id"]
         print("scraping {} ...".format(region_identifier))
         region_session = boto3.Session(region_name=region_identifier)
@@ -167,20 +168,29 @@ def quicklaunch(iam_account_id, iam_username, iam_password, headless):
         )
         driver.find_element_by_xpath('//li[@data-service-id="ec2"]/a').click()
         wait.until(
-            lambda driver: driver.find_element_by_xpath('//iframe[contains(@id, "-react-frame")]')
+            lambda driver: driver.find_element_by_xpath(
+                '//iframe[contains(@id, "-react-frame")]'
+            )
         )
-        dashboard_iframe = driver.find_element_by_xpath('//iframe[contains(@id, "-react-frame")]')
+        dashboard_iframe = driver.find_element_by_xpath(
+            '//iframe[contains(@id, "-react-frame")]'
+        )
         driver.switch_to.frame(dashboard_iframe)
         wait.until(
             lambda driver: driver.find_element_by_class_name(
-                "awsui-button-dropdown-container")
+                "awsui-button-dropdown-container"
+            )
         )
         print("{} - Opening launch instance page".format(region_identifier))
         driver.find_element_by_class_name("awsui-button-dropdown-container").click()
         wait.until(
-            lambda driver: driver.find_element_by_xpath("//*[contains(@href, '#LaunchInstanceWizard:')]")
+            lambda driver: driver.find_element_by_xpath(
+                "//*[contains(@href, '#LaunchInstanceWizard:')]"
+            )
         )
-        driver.find_element_by_xpath("//*[contains(@href, '#LaunchInstanceWizard:')]").click()
+        driver.find_element_by_xpath(
+            "//*[contains(@href, '#LaunchInstanceWizard:')]"
+        ).click()
         driver.switch_to.default_content()
         wait.until(
             lambda driver: driver.find_element_by_id("gwt-debug-tab-QUICKSTART_AMIS")
@@ -197,7 +207,9 @@ def quicklaunch(iam_account_id, iam_username, iam_password, headless):
         for request in list(driver.requests):
             if "call=getQuickstartList" in request.path and request.response:
                 region_quickstart_entries = json.loads(request.response.body)
-                with open('{}-getQuickstartList.json'.format(region_identifier), 'w') as outfile:
+                with open(
+                    "{}-getQuickstartList.json".format(region_identifier), "w"
+                ) as outfile:
                     json.dump(region_quickstart_entries, outfile, indent=4)
                 ubuntu_quick_start_listings = []
                 quickstart_slot = 0
@@ -231,6 +243,7 @@ def quicklaunch(iam_account_id, iam_username, iam_password, headless):
         driver.close()
         driver.quit()
         return (region_identifier, ubuntu_quick_start_listings)
+
     n_jobs = -1
     parallel_quickstart_entries = Parallel(n_jobs=n_jobs)(
         delayed(scrape_quicklaunch_regions)(region_dict)
@@ -380,8 +393,7 @@ def marketplace():
                 "page_order": page_count,
                 "product_order": product_order,
                 "serial": serial,
-                "marketplace_url":
-                    "https://aws.amazon.com{}".format(marketplace_url),
+                "marketplace_url": "https://aws.amazon.com{}".format(marketplace_url),
                 "type": fullfillment_options,
             }
             products.append(product)
@@ -416,7 +428,6 @@ def marketplace():
                     product["description"].replace("\n", "\n\t\t\t\t"),
                     product["marketplace_url"],
                 )
-
             )
 
 
