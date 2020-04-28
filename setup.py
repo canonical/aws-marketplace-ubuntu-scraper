@@ -24,7 +24,7 @@ with open(reqs_path, 'r') as req_file:
 
 setup(
     name="aws_marketplace_ubuntu_scraper",
-    version="0.0.7",
+    version="0.0.8",
     url="https://github.com/philroche/aws-marketplace-ubuntu-scraper",
     license='GPLv3',
     author="Philip Roche",
