@@ -7,11 +7,11 @@ import boto3
 import click
 import requests
 
-from collections import OrderedDict
-
+from botocore.exceptions import ClientError as botocoreClientError
 from bs4 import BeautifulSoup
 from joblib import Parallel, delayed
 from selenium.webdriver.firefox.options import Options
+from selenium.common.exceptions import TimeoutException as SeleniumTimeoutException
 from seleniumwire import webdriver
 
 CANONICAL_OWNER = "099720109477"
@@ -22,6 +22,11 @@ CANONICAL_MARKETPLACE_PROFILE = "565feec9-3d43-413e-9760-c651546613f2"
 
 def get_regions(account_id, username, password, headless):
     # region_dict = {"name": "US East", "location": "N. Virginia", "id": "us-east-1" }
+    # return [region_dict]
+    # region_dict = {"name": "Asia Pacific", "location": "Seoul", "id": "ap-northeast-2"}
+    # return [region_dict]
+    # region_dict = {"name": "Europe", "location": "Ireland",
+    #                "id": "eu-west-1"}
     # return [region_dict]
     driver_options = Options()
     driver_options.headless = headless
@@ -62,7 +67,10 @@ def get_regions(account_id, username, password, headless):
     default=True,
     help="Use selenium in headless mode to avoid Firefox browser opening",
 )
-def quicklaunch(iam_account_id, iam_username, iam_password, headless):
+@click.option(
+    "--parallel/--no-parallel", default=True, help="Query regions in parallel.",
+)
+def quicklaunch(iam_account_id, iam_username, iam_password, headless, parallel):
     region_dict_list = get_regions(iam_account_id, iam_username, iam_password, headless)
     driver_options = Options()
     driver_options.headless = headless
@@ -132,119 +140,168 @@ def quicklaunch(iam_account_id, iam_username, iam_password, headless):
         print("scraping {} ...".format(region_identifier))
         region_session = boto3.Session(region_name=region_identifier)
         region_client = region_session.client("ec2")
-
+        ubuntu_quick_start_listings = []
         driver = webdriver.Firefox(options=driver_options)
-        wait = webdriver.support.ui.WebDriverWait(driver, 20)
-        driver.get("https://{}.signin.aws.amazon.com/console".format(iam_account_id))
-        username_element = driver.find_element_by_id("username")
-        username_element.send_keys(iam_username)
-        password_element = driver.find_element_by_id("password")
-        password_element.send_keys(iam_password)
-        driver.find_element_by_id("signin_button").click()
+        try:
+            wait = webdriver.support.ui.WebDriverWait(driver, 20)
+            driver.get(
+                "https://{}.signin.aws.amazon.com/console".format(iam_account_id)
+            )
+            username_element = driver.find_element_by_id("username")
+            username_element.send_keys(iam_username)
+            password_element = driver.find_element_by_id("password")
+            password_element.send_keys(iam_password)
+            driver.find_element_by_id("signin_button").click()
 
-        wait.until(lambda driver: driver.find_element_by_id("nav-regionMenu"))
-        driver.find_element_by_id("nav-regionMenu").click()
-        # Are we on the correct region already?
-        region_full_name = "{} ({}){}".format(
-            region_dict["name"], region_dict["location"], region_identifier
-        )
-        current_region_element = driver.find_element_by_class_name("current-region")
-        if current_region_element.text != region_full_name:
+            wait.until(lambda driver: driver.find_element_by_id("nav-regionMenu"))
+            driver.find_element_by_id("nav-regionMenu").click()
+            # Are we on the correct region already?
+            region_full_name = "{} ({}){}".format(
+                region_dict["name"], region_dict["location"], region_identifier
+            )
+            current_region_element = driver.find_element_by_class_name("current-region")
+            if current_region_element.text != region_full_name:
+                # wait.until(
+                #     lambda driver: driver.find_element_by_xpath(
+                #         '//a[@data-region-id="{}"]'.format(region_identifier)
+                #     )
+                # )
+                # driver.find_element_by_xpath(
+                #     '//a[@data-region-id="{}"]'.format(region_identifier)
+                # ).click()
+                # Navigating from an opt-in region to another opt in region
+                # leads to http 500 errors. As such we can load the
+                # console for that region directly.
+                driver.get(
+                    "https://{}.console.aws.amazon.com/ec2/home?region={}#Home:".format(
+                        region_identifier, region_identifier
+                    )
+                )
+            else:
+                driver.find_element_by_id("nav-regionMenu").click()
+
+            wait.until(lambda driver: driver.find_element_by_id("nav-servicesMenu"))
+            driver.find_element_by_id("nav-servicesMenu").click()
             wait.until(
                 lambda driver: driver.find_element_by_xpath(
-                    '//a[@data-region-id="{}"]'.format(region_identifier)
+                    '//li[@data-service-id="ec2"]'
+                )
+            )
+            driver.find_element_by_xpath('//li[@data-service-id="ec2"]/a').click()
+            wait.until(
+                lambda driver: driver.find_element_by_xpath(
+                    '//iframe[contains(@id, "-react-frame")]'
+                )
+            )
+            dashboard_iframe = driver.find_element_by_xpath(
+                '//iframe[contains(@id, "-react-frame")]'
+            )
+            driver.switch_to.frame(dashboard_iframe)
+            wait.until(
+                lambda driver: driver.find_element_by_class_name(
+                    "awsui-button-dropdown-container"
+                )
+            )
+            print("{} - Opening launch instance page".format(region_identifier))
+            driver.find_element_by_class_name("awsui-button-dropdown-container").click()
+            wait.until(
+                lambda driver: driver.find_element_by_xpath(
+                    "//*[contains(@href, '#LaunchInstanceWizard:')]"
                 )
             )
             driver.find_element_by_xpath(
-                '//a[@data-region-id="{}"]'.format(region_identifier)
-            ).click()
-        else:
-            driver.find_element_by_id("nav-regionMenu").click()
-
-        wait.until(lambda driver: driver.find_element_by_id("nav-servicesMenu"))
-        driver.find_element_by_id("nav-servicesMenu").click()
-        wait.until(
-            lambda driver: driver.find_element_by_xpath('//li[@data-service-id="ec2"]')
-        )
-        driver.find_element_by_xpath('//li[@data-service-id="ec2"]/a').click()
-        wait.until(
-            lambda driver: driver.find_element_by_xpath(
-                '//iframe[contains(@id, "-react-frame")]'
-            )
-        )
-        dashboard_iframe = driver.find_element_by_xpath(
-            '//iframe[contains(@id, "-react-frame")]'
-        )
-        driver.switch_to.frame(dashboard_iframe)
-        wait.until(
-            lambda driver: driver.find_element_by_class_name(
-                "awsui-button-dropdown-container"
-            )
-        )
-        print("{} - Opening launch instance page".format(region_identifier))
-        driver.find_element_by_class_name("awsui-button-dropdown-container").click()
-        wait.until(
-            lambda driver: driver.find_element_by_xpath(
                 "//*[contains(@href, '#LaunchInstanceWizard:')]"
+            ).click()
+            driver.switch_to.default_content()
+            wait.until(
+                lambda driver: driver.find_element_by_id(
+                    "gwt-debug-tab-QUICKSTART_AMIS"
+                )
             )
-        )
-        driver.find_element_by_xpath(
-            "//*[contains(@href, '#LaunchInstanceWizard:')]"
-        ).click()
-        driver.switch_to.default_content()
-        wait.until(
-            lambda driver: driver.find_element_by_id("gwt-debug-tab-QUICKSTART_AMIS")
-        )
-        driver.find_element_by_id("gwt-debug-tab-QUICKSTART_AMIS").click()
-        wait.until(
-            lambda driver: driver.find_element_by_id("gwt-debug-tab-QUICKSTART_AMIS")
-        )
-        wait.until(lambda driver: driver.find_element_by_id("gwt-debug-paginatorLabel"))
-        # wait until JSON request is complete loads.
-        # 3 seconds seems to be enough for all regions
-        print("{} - Querying quickstart list".format(region_identifier))
-        time.sleep(3)
-        for request in list(driver.requests):
-            if "call=getQuickstartList" in request.path and request.response:
-                region_quickstart_entries = json.loads(request.response.body)
-                with open(
-                    "{}-getQuickstartList.json".format(region_identifier), "w"
-                ) as outfile:
-                    json.dump(region_quickstart_entries, outfile, indent=4)
-                ubuntu_quick_start_listings = []
-                quickstart_slot = 0
-                for ami in region_quickstart_entries["amiList"]:
-                    quickstart_slot = quickstart_slot + 1
-                    if ami["platform"] == "ubuntu":
-                        if ami.get("imageId64", None):
-                            canonical_amd64_ami = get_ami_details(
-                                region_client,
-                                ami.copy(),
-                                quickstart_slot,
-                                ami.get("imageId64"),
-                            )
-                            if canonical_amd64_ami:
-                                ubuntu_quick_start_listings.append(canonical_amd64_ami)
+            driver.find_element_by_id("gwt-debug-tab-QUICKSTART_AMIS").click()
+            wait.until(
+                lambda driver: driver.find_element_by_id(
+                    "gwt-debug-tab-QUICKSTART_AMIS"
+                )
+            )
+            wait.until(
+                lambda driver: driver.find_element_by_id("gwt-debug-paginatorLabel")
+            )
+            # wait until JSON request is complete loads.
+            # 3 seconds seems to be enough for all regions
+            print("{} - Querying quickstart list".format(region_identifier))
+            time.sleep(3)
+            for request in list(driver.requests):
+                if "call=getQuickstartList" in request.path and request.response:
+                    region_quickstart_entries = json.loads(request.response.body)
+                    with open(
+                        "{}-getQuickstartList.json".format(region_identifier), "w"
+                    ) as outfile:
+                        json.dump(region_quickstart_entries, outfile, indent=4)
 
-                        if ami.get("imageIdArm64", None):
-                            canonical_arm64_ami = get_ami_details(
-                                region_client,
-                                ami.copy(),
-                                quickstart_slot,
-                                ami.get("imageIdArm64"),
-                            )
-                            if canonical_arm64_ami:
-                                ubuntu_quick_start_listings.append(canonical_arm64_ami)
+                    quickstart_slot = 0
+                    for ami in region_quickstart_entries["amiList"]:
+                        quickstart_slot = quickstart_slot + 1
+                        if ami["platform"] == "ubuntu":
+                            if ami.get("imageId64", None):
+                                print(
+                                    "{} - Querying ami details for AMD64 AMI {}".format(
+                                        region_identifier, ami.get("imageId64")
+                                    )
+                                )
+                                canonical_amd64_ami = get_ami_details(
+                                    region_client,
+                                    ami.copy(),
+                                    quickstart_slot,
+                                    ami.get("imageId64"),
+                                )
+                                if canonical_amd64_ami:
+                                    canonical_amd64_ami["listing_arch"] = "amd64"
+                                    ubuntu_quick_start_listings.append(
+                                        canonical_amd64_ami
+                                    )
 
-                # We only need one list so we can break here
-                break
+                            if ami.get("imageIdArm64", None):
+                                print(
+                                    "{} - Querying ami details for ARM64 AMI {}".format(
+                                        region_identifier, ami.get("imageIdArm64")
+                                    )
+                                )
+                                canonical_arm64_ami = get_ami_details(
+                                    region_client,
+                                    ami.copy(),
+                                    quickstart_slot,
+                                    ami.get("imageIdArm64"),
+                                )
+                                if canonical_arm64_ami:
+                                    canonical_arm64_ami["listing_arch"] = "arm64"
+                                    ubuntu_quick_start_listings.append(
+                                        canonical_arm64_ami
+                                    )
 
-        driver.delete_all_cookies()
-        driver.close()
-        driver.quit()
+                    # We only need one list so we can break here
+                    break
+        except SeleniumTimeoutException as ste:
+            print(
+                "SeleniumTimeoutException encountered when querying region {} ".format(
+                    region_identifier
+                )
+            )
+            print(ste.msg)
+        except botocoreClientError as bce:
+            print(
+                "botocoreClientError encountered when AMI for region {} ".format(
+                    region_identifier
+                )
+            )
+            print(bce)
+        finally:
+            driver.delete_all_cookies()
+            driver.close()
+            driver.quit()
         return (region_identifier, ubuntu_quick_start_listings)
 
-    n_jobs = -1
+    n_jobs = -1 if parallel else 1
     parallel_quickstart_entries = Parallel(n_jobs=n_jobs)(
         delayed(scrape_quicklaunch_regions)(region_dict)
         for region_dict in region_dict_list
@@ -254,12 +311,24 @@ def quicklaunch(iam_account_id, iam_username, iam_password, headless):
         parallel_quickstart_entries, key=lambda tup: tup[0]
     )
 
+    with open("quickstart_entries.json", "w") as quickstart_entries_json:
+        json.dump(sorted_parallel_quickstart_entries, quickstart_entries_json, indent=4)
+
+    issues = {}
+
     for region, ubuntu_quickstart_entries in sorted_parallel_quickstart_entries:
         print(region)
+        region_amis = []
+        region_expected_listings = {
+            "16.04": ["amd64", "arm64"],
+            "18.04": ["amd64", "arm64"],
+            "20.04": ["amd64", "arm64"],
+        }
         for ubuntu_quickstart_entry in ubuntu_quickstart_entries:
             print(
-                "{} \n\t{} {} {} {} {} \n\t\t(Slot: {} , Description: {})".format(
+                "{} {}\n\t{} {} {} {} {} \n\t\t(Slot: {} , Description: {})".format(
                     ubuntu_quickstart_entry.get("title", ""),
+                    ubuntu_quickstart_entry.get("listing_arch", ""),
                     ubuntu_quickstart_entry.get("release_version", ""),
                     ubuntu_quickstart_entry.get("serial", ""),
                     ubuntu_quickstart_entry.get("arch", ""),
@@ -269,6 +338,68 @@ def quicklaunch(iam_account_id, iam_username, iam_password, headless):
                     ubuntu_quickstart_entry.get("description", ""),
                 )
             )
+            if ubuntu_quickstart_entry.get("owner", "") == "Canonical":
+                release_version = ubuntu_quickstart_entry.get("release_version", "")
+                if (
+                    ubuntu_quickstart_entry.get("arch", "")
+                    in region_expected_listings[release_version]
+                ):
+                    region_expected_listings[release_version].remove(
+                        ubuntu_quickstart_entry.get("arch", "")
+                    )
+                region_amis.append(ubuntu_quickstart_entry.get("ami_id", ""))
+
+            if ubuntu_quickstart_entry.get(
+                "owner", ""
+            ) == "Canonical" and ubuntu_quickstart_entry.get(
+                "arch", ""
+            ) != ubuntu_quickstart_entry.get(
+                "listing_arch", ""
+            ):
+                issues.setdefault(region, []).append(
+                    "'{}' listing arch {} and AMI ({}) arch {} are not equal ".format(
+                        ubuntu_quickstart_entry.get("title", ""),
+                        ubuntu_quickstart_entry.get("listing_arch", ""),
+                        ubuntu_quickstart_entry.get("ami_id", ""),
+                        ubuntu_quickstart_entry.get("arch", ""),
+                    )
+                )
+            if (
+                ubuntu_quickstart_entry.get("owner", "") == "Canonical"
+                and int(ubuntu_quickstart_entry.get("quickstart_slot", "")) > 10
+            ):
+                issues.setdefault(region, []).append(
+                    "'{}' {} listing slot is greater than 10 - slot {}".format(
+                        ubuntu_quickstart_entry.get("title", ""),
+                        ubuntu_quickstart_entry.get("listing_arch", ""),
+                        ubuntu_quickstart_entry.get("quickstart_slot", ""),
+                    )
+                )
+            if (
+                ubuntu_quickstart_entry.get("owner", "") == "Canonical"
+                and region_amis.count(ubuntu_quickstart_entry.get("ami_id", "")) > 1
+            ):
+                issues.setdefault(region, []).append(
+                    "'{}' {} listing AMI {} appears more than once  ".format(
+                        ubuntu_quickstart_entry.get("title", ""),
+                        ubuntu_quickstart_entry.get("listing_arch", ""),
+                        ubuntu_quickstart_entry.get("ami_id", ""),
+                    )
+                )
+        print()
+
+        for release_version, arches in region_expected_listings.items():
+            if len(arches) > 0:
+                for arch in arches:
+                    issues.setdefault(region, []).append(
+                        "There are no listings for {} {}  ".format(
+                            release_version, arch,
+                        )
+                    )
+    for region, region_issues in issues.items():
+        print(region)
+        for region_issue in region_issues:
+            print("\t* {}".format(region_issue))
         print()
 
 
