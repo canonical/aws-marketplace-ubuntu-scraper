@@ -153,72 +153,33 @@ def quicklaunch(iam_account_id, iam_username, iam_password, headless, parallel, 
             driver.get(
                 "https://{}.signin.aws.amazon.com/console".format(iam_account_id)
             )
+            wait.until(lambda driver: driver.find_element_by_id("username"))
             username_element = driver.find_element_by_id("username")
             username_element.send_keys(iam_username)
             password_element = driver.find_element_by_id("password")
             password_element.send_keys(iam_password)
             driver.find_element_by_id("signin_button").click()
 
-            wait.until(lambda driver: driver.find_element_by_id("nav-regionMenu"))
-            driver.find_element_by_id("nav-regionMenu").click()
-            # Are we on the correct region already?
-            region_full_name = "{} ({}){}".format(
-                region_dict["name"], region_dict["location"], region_identifier
-            )
-            current_region_element = driver.find_element_by_class_name("current-region")
-            if current_region_element.text != region_full_name:
-                # wait.until(
-                #     lambda driver: driver.find_element_by_xpath(
-                #         '//a[@data-region-id="{}"]'.format(region_identifier)
-                #     )
-                # )
-                # driver.find_element_by_xpath(
-                #     '//a[@data-region-id="{}"]'.format(region_identifier)
-                # ).click()
-                # Navigating from an opt-in region to another opt in region
-                # leads to http 500 errors. As such we can load the
-                # console for that region directly.
-                driver.get(
-                    "https://{}.console.aws.amazon.com/ec2/home?region={}#Home:".format(
-                        region_identifier, region_identifier
-                    )
-                )
-            else:
-                driver.find_element_by_id("nav-regionMenu").click()
+            wait.until(lambda driver: driver.find_element_by_xpath(
+                         '//button[@data-testid="{}"]'.format("more-menu__awsc-nav-regions-menu-button")
+                     ))
 
-            wait.until(lambda driver: driver.find_element_by_id("nav-servicesMenu"))
-            driver.find_element_by_id("nav-servicesMenu").click()
-            wait.until(
-                lambda driver: driver.find_element_by_xpath(
-                    '//li[@data-service-id="ec2"]'
+            driver.get(
+                "https://{}.console.aws.amazon.com/ec2/v2/home?region={}#LaunchInstanceWizard:".format(
+                    region_identifier, region_identifier
                 )
             )
-            driver.find_element_by_xpath('//li[@data-service-id="ec2"]/a').click()
+
             wait.until(
                 lambda driver: driver.find_element_by_xpath(
-                    '//iframe[contains(@id, "-react-frame")]'
+                    '//iframe[@id="instance-lx-gwt-frame"]'
                 )
             )
             dashboard_iframe = driver.find_element_by_xpath(
-                '//iframe[contains(@id, "-react-frame")]'
+                '//iframe[@id="instance-lx-gwt-frame"]'
             )
             driver.switch_to.frame(dashboard_iframe)
-            wait.until(
-                lambda driver: driver.find_element_by_class_name(
-                    "awsui-button-dropdown-container"
-                )
-            )
-            print("{} - Opening launch instance page".format(region_identifier))
-            driver.find_element_by_class_name("awsui-button-dropdown-container").click()
-            wait.until(
-                lambda driver: driver.find_element_by_xpath(
-                    "//*[contains(@href, '#LaunchInstanceWizard:')]"
-                )
-            )
-            driver.find_element_by_xpath(
-                "//*[contains(@href, '#LaunchInstanceWizard:')]"
-            ).click()
-            driver.switch_to.default_content()
+
             wait.until(
                 lambda driver: driver.find_element_by_id(
                     "gwt-debug-tab-QUICKSTART_AMIS"
