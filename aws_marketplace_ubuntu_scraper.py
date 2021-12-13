@@ -151,7 +151,7 @@ def quicklaunch(iam_account_id, iam_username, iam_password, headless, parallel, 
         try:
             wait = WebDriverWait(driver, 20)
             driver.get(
-                "https://{}.signin.aws.amazon.com/console".format(iam_account_id)
+                "https://{}.signin.aws.amazon.com/console?region={}".format(iam_account_id, region_identifier)
             )
             wait.until(lambda driver: driver.find_element_by_id("username"))
             username_element = driver.find_element_by_id("username")
