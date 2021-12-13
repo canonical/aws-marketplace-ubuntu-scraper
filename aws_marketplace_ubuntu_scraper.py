@@ -10,6 +10,7 @@ import requests
 from botocore.exceptions import ClientError as botocoreClientError
 from bs4 import BeautifulSoup
 from joblib import Parallel, delayed
+from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.firefox.options import Options
 from selenium.common.exceptions import TimeoutException as SeleniumTimeoutException
 from seleniumwire import webdriver
@@ -31,7 +32,7 @@ def get_regions(account_id, username, password, headless):
     driver_options = Options()
     driver_options.headless = headless
     driver = webdriver.Firefox(options=driver_options)
-    wait = webdriver.support.ui.WebDriverWait(driver, 10)
+    wait = WebDriverWait(driver, 10)
     driver.get("https://{}.signin.aws.amazon.com/console".format(account_id))
     username_element = driver.find_element_by_id("username")
     username_element.send_keys(username)
@@ -143,7 +144,7 @@ def quicklaunch(iam_account_id, iam_username, iam_password, headless, parallel):
         ubuntu_quick_start_listings = []
         driver = webdriver.Firefox(options=driver_options)
         try:
-            wait = webdriver.support.ui.WebDriverWait(driver, 20)
+            wait = WebDriverWait(driver, 20)
             driver.get(
                 "https://{}.signin.aws.amazon.com/console".format(iam_account_id)
             )
