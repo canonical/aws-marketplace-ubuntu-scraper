@@ -10,7 +10,9 @@ import requests
 from botocore.exceptions import ClientError as botocoreClientError
 from bs4 import BeautifulSoup
 from joblib import Parallel, delayed
+from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.firefox.options import Options
 from selenium.common.exceptions import TimeoutException as SeleniumTimeoutException
 from seleniumwire import webdriver
@@ -160,15 +162,8 @@ def quicklaunch(iam_account_id, iam_username, iam_password, headless, parallel, 
             password_element.send_keys(iam_password)
             driver.find_element_by_id("signin_button").click()
 
-            wait.until(lambda driver: driver.find_element_by_xpath(
-                         '//button[@data-testid="{}"]'.format("more-menu__awsc-nav-regions-menu-button")
-                     ))
-
-            driver.get(
-                "https://{}.console.aws.amazon.com/ec2/v2/home?region={}#LaunchInstanceWizard:".format(
-                    region_identifier, region_identifier
-                )
-            )
+            wait.until(EC.element_to_be_clickable((By.ID, 'EC2_LAUNCH_WIZARD')))
+            driver.find_element(By.ID, "EC2_LAUNCH_WIZARD").click()
 
             wait.until(
                 lambda driver: driver.find_element_by_xpath(
