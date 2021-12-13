@@ -21,7 +21,7 @@ AWS_UBUNTU_DEEP_LEARNING_OWNER_ALIAS = "amazon"
 CANONICAL_MARKETPLACE_PROFILE = "565feec9-3d43-413e-9760-c651546613f2"
 
 
-def get_regions(account_id, username, password, headless):
+def get_regions(account_id, username, password, headless, only_regions):
     # region_dict = {"name": "US East", "location": "N. Virginia", "id": "us-east-1" }
     # return [region_dict]
     # region_dict = {"name": "Asia Pacific", "location": "Seoul", "id": "ap-northeast-2"}
@@ -47,6 +47,8 @@ def get_regions(account_id, username, password, headless):
     driver.delete_all_cookies()
     driver.close()
     driver.quit()
+    if only_regions:
+        return [reg for reg in region_list if reg['id'] in only_regions]
     return region_list
 
 
@@ -71,8 +73,11 @@ def get_regions(account_id, username, password, headless):
 @click.option(
     "--parallel/--no-parallel", default=True, help="Query regions in parallel.",
 )
-def quicklaunch(iam_account_id, iam_username, iam_password, headless, parallel):
-    region_dict_list = get_regions(iam_account_id, iam_username, iam_password, headless)
+@click.option(
+    "--only-regions", multiple=True, default=[]
+)
+def quicklaunch(iam_account_id, iam_username, iam_password, headless, parallel, only_regions):
+    region_dict_list = get_regions(iam_account_id, iam_username, iam_password, headless, only_regions)
     driver_options = Options()
     driver_options.headless = headless
 
