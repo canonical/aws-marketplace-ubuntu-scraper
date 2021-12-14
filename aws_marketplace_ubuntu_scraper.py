@@ -1,5 +1,6 @@
 import json
 import re
+import subprocess
 import sys
 import time
 
@@ -524,6 +525,41 @@ def marketplace():
             )
 
 
+def _streams_get_image(region, suite, arch):
+    cmd = ['/snap/bin/simplestreams.sstream-query', '--max=1',
+           'http://cloud-images.ubuntu.com/releases/streams/v1/com.ubuntu.cloud:released:aws.sjson',
+           f'crsn={region}', f'version={suite}', f'arch={arch}', 'virt=hvm',
+           'root_store=ssd', '--output-format=%(id)s']
+    return subprocess.check_output(cmd, encoding='utf-8', universal_newlines=True)
+
+
+@click.command(name='quicklaunch-report')
+@click.option(
+    '--scraper-data', type=click.File('r'), required=True,
+    show_default=True, default='quickstart_entries.json'
+)
+def quicklaunch_report(scraper_data):
+    from prettytable import PrettyTable
+    t = PrettyTable()
+    t.field_names = ['Region', 'Release', 'Arch', 'Position', 'Quickstart AMI', 'Streams AMI', 'Needs update']
+    data = json.loads(scraper_data.read())
+    for region in sorted(data):
+        print(f'Checking region {region[0]} ...')
+        for ami in region[1]:
+            if ami['owner'] != 'Canonical':
+                # skip Amazon owned images for now in the report
+                continue
+            if ami['listing_arch'] == 'amd64':
+                ami_id = ami['imageId64']
+            elif ami['listing_arch'] == 'arm64':
+                ami_id = ami['imageIdArm64']
+            else:
+                raise Exception('Unknown architecture {}'.format(ami['arch']))
+            streams_ami_id = _streams_get_image(region[0], ami['release_version'], ami['listing_arch'])
+            t.add_row([region[0], ami['release_version'], ami['listing_arch'],
+                       ami['quickstart_slot'], ami_id, streams_ami_id, ami_id == streams_ami_id])
+    print(t.get_string(sortby='Region', reversesort=True))
+
 @click.group()
 def main():
     pass
@@ -531,6 +567,7 @@ def main():
 
 main.add_command(quicklaunch)
 main.add_command(marketplace)
+main.add_command(quicklaunch_report)
 
 if __name__ == "__main__":
     sys.exit(main())
