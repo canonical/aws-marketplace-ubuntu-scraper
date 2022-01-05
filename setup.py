@@ -48,7 +48,7 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'aws_marketplace_ubuntu_scraper = '
+            'aws-marketplace-ubuntu-scraper = '
             'aws_marketplace_ubuntu_scraper:main',
         ],
     },
