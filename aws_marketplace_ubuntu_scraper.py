@@ -1,5 +1,6 @@
 import json
 import re
+import subprocess
 import sys
 import time
 
@@ -10,6 +11,9 @@ import requests
 from botocore.exceptions import ClientError as botocoreClientError
 from bs4 import BeautifulSoup
 from joblib import Parallel, delayed
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.firefox.options import Options
 from selenium.common.exceptions import TimeoutException as SeleniumTimeoutException
 from seleniumwire import webdriver
@@ -20,7 +24,7 @@ AWS_UBUNTU_DEEP_LEARNING_OWNER_ALIAS = "amazon"
 CANONICAL_MARKETPLACE_PROFILE = "565feec9-3d43-413e-9760-c651546613f2"
 
 
-def get_regions(account_id, username, password, headless):
+def get_regions(account_id, username, password, headless, only_regions):
     # region_dict = {"name": "US East", "location": "N. Virginia", "id": "us-east-1" }
     # return [region_dict]
     # region_dict = {"name": "Asia Pacific", "location": "Seoul", "id": "ap-northeast-2"}
@@ -31,7 +35,7 @@ def get_regions(account_id, username, password, headless):
     driver_options = Options()
     driver_options.headless = headless
     driver = webdriver.Firefox(options=driver_options)
-    wait = webdriver.support.ui.WebDriverWait(driver, 10)
+    wait = WebDriverWait(driver, 10)
     driver.get("https://{}.signin.aws.amazon.com/console".format(account_id))
     username_element = driver.find_element_by_id("username")
     username_element.send_keys(username)
@@ -46,6 +50,8 @@ def get_regions(account_id, username, password, headless):
     driver.delete_all_cookies()
     driver.close()
     driver.quit()
+    if only_regions:
+        return [reg for reg in region_list if reg['id'] in only_regions]
     return region_list
 
 
@@ -70,8 +76,11 @@ def get_regions(account_id, username, password, headless):
 @click.option(
     "--parallel/--no-parallel", default=True, help="Query regions in parallel.",
 )
-def quicklaunch(iam_account_id, iam_username, iam_password, headless, parallel):
-    region_dict_list = get_regions(iam_account_id, iam_username, iam_password, headless)
+@click.option(
+    "--only-regions", multiple=True, default=[]
+)
+def quicklaunch(iam_account_id, iam_username, iam_password, headless, parallel, only_regions):
+    region_dict_list = get_regions(iam_account_id, iam_username, iam_password, headless, only_regions)
     driver_options = Options()
     driver_options.headless = headless
 
@@ -143,76 +152,30 @@ def quicklaunch(iam_account_id, iam_username, iam_password, headless, parallel):
         ubuntu_quick_start_listings = []
         driver = webdriver.Firefox(options=driver_options)
         try:
-            wait = webdriver.support.ui.WebDriverWait(driver, 20)
+            wait = WebDriverWait(driver, 20)
             driver.get(
-                "https://{}.signin.aws.amazon.com/console".format(iam_account_id)
+                "https://{}.signin.aws.amazon.com/console?region={}".format(iam_account_id, region_identifier)
             )
+            wait.until(lambda driver: driver.find_element_by_id("username"))
             username_element = driver.find_element_by_id("username")
             username_element.send_keys(iam_username)
             password_element = driver.find_element_by_id("password")
             password_element.send_keys(iam_password)
             driver.find_element_by_id("signin_button").click()
 
-            wait.until(lambda driver: driver.find_element_by_id("nav-regionMenu"))
-            driver.find_element_by_id("nav-regionMenu").click()
-            # Are we on the correct region already?
-            region_full_name = "{} ({}){}".format(
-                region_dict["name"], region_dict["location"], region_identifier
-            )
-            current_region_element = driver.find_element_by_class_name("current-region")
-            if current_region_element.text != region_full_name:
-                # wait.until(
-                #     lambda driver: driver.find_element_by_xpath(
-                #         '//a[@data-region-id="{}"]'.format(region_identifier)
-                #     )
-                # )
-                # driver.find_element_by_xpath(
-                #     '//a[@data-region-id="{}"]'.format(region_identifier)
-                # ).click()
-                # Navigating from an opt-in region to another opt in region
-                # leads to http 500 errors. As such we can load the
-                # console for that region directly.
-                driver.get(
-                    "https://{}.console.aws.amazon.com/ec2/home?region={}#Home:".format(
-                        region_identifier, region_identifier
-                    )
-                )
-            else:
-                driver.find_element_by_id("nav-regionMenu").click()
+            wait.until(EC.element_to_be_clickable((By.ID, 'EC2_LAUNCH_WIZARD')))
+            driver.find_element(By.ID, "EC2_LAUNCH_WIZARD").click()
 
-            wait.until(lambda driver: driver.find_element_by_id("nav-servicesMenu"))
-            driver.find_element_by_id("nav-servicesMenu").click()
             wait.until(
                 lambda driver: driver.find_element_by_xpath(
-                    '//li[@data-service-id="ec2"]'
-                )
-            )
-            driver.find_element_by_xpath('//li[@data-service-id="ec2"]/a').click()
-            wait.until(
-                lambda driver: driver.find_element_by_xpath(
-                    '//iframe[contains(@id, "-react-frame")]'
+                    '//iframe[@id="instance-lx-gwt-frame"]'
                 )
             )
             dashboard_iframe = driver.find_element_by_xpath(
-                '//iframe[contains(@id, "-react-frame")]'
+                '//iframe[@id="instance-lx-gwt-frame"]'
             )
             driver.switch_to.frame(dashboard_iframe)
-            wait.until(
-                lambda driver: driver.find_element_by_class_name(
-                    "awsui-button-dropdown-container"
-                )
-            )
-            print("{} - Opening launch instance page".format(region_identifier))
-            driver.find_element_by_class_name("awsui-button-dropdown-container").click()
-            wait.until(
-                lambda driver: driver.find_element_by_xpath(
-                    "//*[contains(@href, '#LaunchInstanceWizard:')]"
-                )
-            )
-            driver.find_element_by_xpath(
-                "//*[contains(@href, '#LaunchInstanceWizard:')]"
-            ).click()
-            driver.switch_to.default_content()
+
             wait.until(
                 lambda driver: driver.find_element_by_id(
                     "gwt-debug-tab-QUICKSTART_AMIS"
@@ -562,6 +525,41 @@ def marketplace():
             )
 
 
+def _streams_get_image(region, suite, arch):
+    cmd = ['/snap/bin/simplestreams.sstream-query', '--max=1',
+           'http://cloud-images.ubuntu.com/releases/streams/v1/com.ubuntu.cloud:released:aws.sjson',
+           f'crsn={region}', f'version={suite}', f'arch={arch}', 'virt=hvm',
+           'root_store=ssd', '--output-format=%(id)s']
+    return subprocess.check_output(cmd, encoding='utf-8', universal_newlines=True)
+
+
+@click.command(name='quicklaunch-report')
+@click.option(
+    '--scraper-data', type=click.File('r'), required=True,
+    show_default=True, default='quickstart_entries.json'
+)
+def quicklaunch_report(scraper_data):
+    from prettytable import PrettyTable
+    t = PrettyTable()
+    t.field_names = ['Region', 'Release', 'Arch', 'Position', 'Quickstart AMI', 'Streams AMI', 'Needs update']
+    data = json.loads(scraper_data.read())
+    for region in sorted(data):
+        print(f'Checking region {region[0]} ...')
+        for ami in region[1]:
+            if ami['owner'] != 'Canonical':
+                # skip Amazon owned images for now in the report
+                continue
+            if ami['listing_arch'] == 'amd64':
+                ami_id = ami['imageId64']
+            elif ami['listing_arch'] == 'arm64':
+                ami_id = ami['imageIdArm64']
+            else:
+                raise Exception('Unknown architecture {}'.format(ami['arch']))
+            streams_ami_id = _streams_get_image(region[0], ami['release_version'], ami['listing_arch'])
+            t.add_row([region[0], ami['release_version'], ami['listing_arch'],
+                       ami['quickstart_slot'], ami_id, streams_ami_id, ami_id == streams_ami_id])
+    print(t.get_string(sortby='Region', reversesort=True))
+
 @click.group()
 def main():
     pass
@@ -569,6 +567,7 @@ def main():
 
 main.add_command(quicklaunch)
 main.add_command(marketplace)
+main.add_command(quicklaunch_report)
 
 if __name__ == "__main__":
     sys.exit(main())
