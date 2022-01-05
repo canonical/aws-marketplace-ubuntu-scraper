@@ -538,12 +538,25 @@ def _streams_get_image(region, suite, arch):
     '--scraper-data', type=click.File('r'), required=True,
     show_default=True, default='quickstart_entries.json'
 )
-def quicklaunch_report(scraper_data):
+@click.option('--needs-update-only/--no-needs-update-only',
+              show_default=True, default=False)
+def quicklaunch_report(scraper_data, needs_update_only):
+    """
+    Print a table with which shows if the quickstart entries are up-to-date.
+    This is checked against streams.
+
+    Returns 0 if everything is fine (no updates needed)
+
+    Returns 2 if updates are needed
+
+    All other return codes indicate a failure in the software
+    """
     from prettytable import PrettyTable
     t = PrettyTable()
     t.field_names = ['Region', 'Release', 'Arch', 'Position', 'Quickstart AMI', 'Streams AMI', 'Needs update']
     data = json.loads(scraper_data.read())
-    for region in sorted(data):
+    needs_any_update = False
+    for region in sorted(data[0:1]):
         print(f'Checking region {region[0]} ...')
         for ami in region[1]:
             if ami['owner'] != 'Canonical':
@@ -556,9 +569,19 @@ def quicklaunch_report(scraper_data):
             else:
                 raise Exception('Unknown architecture {}'.format(ami['arch']))
             streams_ami_id = _streams_get_image(region[0], ami['release_version'], ami['listing_arch'])
-            t.add_row([region[0], ami['release_version'], ami['listing_arch'],
-                       ami['quickstart_slot'], ami_id, streams_ami_id, ami_id == streams_ami_id])
-    print(t.get_string(sortby='Region', reversesort=True))
+            needs_update = ami_id == streams_ami_id
+            if True or needs_update:
+                needs_any_update = True
+            if not needs_update_only or needs_update:
+                t.add_row([region[0], ami['release_version'], ami['listing_arch'],
+                           ami['quickstart_slot'], ami_id, streams_ami_id, needs_update])
+    if needs_any_update:
+        print(t.get_string(sortby='Region', reversesort=True))
+        click.echo("There are some updates needed")
+        # do return 2 which can then be checked in automation if updates are needed
+        sys.exit(2)
+    else:
+        click.echo('No updates needed')
 
 @click.group()
 def main():
