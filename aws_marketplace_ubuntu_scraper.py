@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import subprocess
 import sys
@@ -9,7 +10,6 @@ import click
 import requests
 
 from botocore.exceptions import ClientError as botocoreClientError
-from bs4 import BeautifulSoup
 from joblib import Parallel, delayed
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -22,6 +22,7 @@ CANONICAL_OWNER = "099720109477"
 AWS_UBUNTU_PRO_OWNER_ALIAS = "aws-marketplace"
 AWS_UBUNTU_DEEP_LEARNING_OWNER_ALIAS = "amazon"
 CANONICAL_MARKETPLACE_PROFILE = "565feec9-3d43-413e-9760-c651546613f2"
+AWS_MARKETPLACE_PROFILE = "e6a5002c-6dd0-4d1e-8196-0a1d1857229b"
 
 
 def get_regions(account_id, username, password, headless, only_regions):
@@ -368,161 +369,132 @@ def quicklaunch(iam_account_id, iam_username, iam_password, headless, parallel, 
 
 @click.command()
 def marketplace():
+    marketplace_profiles = [CANONICAL_MARKETPLACE_PROFILE, AWS_MARKETPLACE_PROFILE]
     public_profile_url_base = "https://aws.amazon.com/marketplace/seller-profile"
-    public_profile_url = "{}?id={}".format(
-        public_profile_url_base, CANONICAL_MARKETPLACE_PROFILE
-    )
-    response = requests.get(public_profile_url)
-    page_content = response.content
-    page_soup = BeautifulSoup(page_content, features="html.parser")
-    page_link_elements = page_soup.select("div.pagination-bar ul.pagination li a")
-    page_links = set()
-    for page_link_element in page_link_elements:
-        href = page_link_element.get("href", None)
-        if href:
-            page_links.add("{}{}".format(public_profile_url_base, href))
+    marketplace_listings = []
+    marketplace_listings_filename = "marketplace-listings.json"
+    if not os.path.isfile(marketplace_listings_filename):
+        try:
+            driver_options = Options()
+            driver_options.headless = False
+            driver = webdriver.Firefox(options=driver_options)
+            wait = webdriver.support.ui.WebDriverWait(driver, 30)
+            for marketplace_profile in marketplace_profiles:
+                public_profile_url = "{}?id={}".format(
+                    public_profile_url_base, marketplace_profile
+                )
 
-    def scrape_marketplace(marketplace_url):
-        page_count = ""
-        page_count_regex = r".*?page=(?P<page_count>\d?)"
-        match = re.match(page_count_regex, marketplace_url)
+                driver.get(public_profile_url)
+                wait.until(
+                    lambda driver: driver.find_element_by_class_name("awsui-table-pagination-next-page")
+                )
+                next_page = True
+                page = 1
+                while next_page:
+                    if page !=1:
+                        driver.find_element_by_class_name("awsui-table-pagination-next-page").click()
+                        wait.until(
+                            lambda driver: driver.find_element_by_xpath(
+                                '//awsui-table[@data-test-selector="searchResultsTable"]'
+                            )
+                        )
+                    for request in list(driver.requests):
+                        if "marketplace/api/awsmpdiscovery" in request.path and request.response:
+                            seller_marketplace_entries = json.loads(request.response.body)
+                            marketplace_listings.extend(seller_marketplace_entries.get('ListingSummaries'))
+                            next_page_token = seller_marketplace_entries.get('NextToken', None)
+                            if not next_page_token:
+                                next_page = False
+                            print(seller_marketplace_entries)
+                            # We only need one list so we can break here
+                            del driver.requests
+                            break
+                    page = page + 1
+        finally:
+            driver.delete_all_cookies()
+            driver.close()
+            driver.quit()
+
+        print(marketplace_listings)
+        with open(
+                marketplace_listings_filename, "w"
+        ) as outfile:
+            json.dump(marketplace_listings, outfile, indent=4)
+    else:
+        with open(marketplace_listings_filename, "r") as marketplace_listings_file:
+            marketplace_listings = json.load(marketplace_listings_file)
+
+    products = []
+    for marketplace_listing in marketplace_listings:
+
+        product_title = marketplace_listing.get('DisplayAttributes').get('Title')
+
+        product_creator_id = marketplace_listing.get('ProductAttributes').get('Creator').get('Value')
+        product_creator_title = marketplace_listing.get('ProductAttributes').get('Creator').get('DisplayName')
+        # if this is a listing on the AWS seller profile then we only want to scrape the Ubuntu listings
+        if product_creator_id == AWS_MARKETPLACE_PROFILE:
+            if "Ubuntu" not in product_title:
+                continue
+
+        product_version = marketplace_listing.get('DisplayAttributes').get('VersionInformation', {}).get('RecommendedVersion', '')
+
+        product_description = marketplace_listing.get('DisplayAttributes').get('LongDescription')
+        product_type = marketplace_listing.get('FulfillmentOptionTypes')[0].get('DisplayName')
+        product_id = marketplace_listing.get('Id')
+        marketplace_url = "https://aws.amazon.com/marketplace/pp/{}".format(product_id)
+
+        release_version = ""
+        serial = ""
+        version_regex = (
+            r".*?(?P<release_version>\d\d\.\d\d?)"
+            r".*?(?P<serial>\d\d\d\d\d\d\d\d(\.\d{1,2})?).*?"
+        )
+
+        match = re.match(version_regex, product_version)
 
         if match:
             attrs = match.groupdict()
-            page_count = attrs.get("page_count", None)
+            release_version = attrs.get("release_version", None)
+            serial = attrs.get("serial", None)
 
-        response = requests.get(marketplace_url)
-        page_content = response.content
-        page_soup = BeautifulSoup(page_content, features="html.parser")
-        product_elements = page_soup.select(
-            "div.vendor-products article.products div.col-xs-10"
+        product_unique_identifier = "{} ({}) - {}".format(
+            product_title, product_type, serial
         )
-        products = []
-        product_order = (int(page_count) * 10) - 10
-        product_in_page_order = 0
-        for product_element in product_elements:
-            product_order = product_order + 1
-            product_in_page_order = product_in_page_order + 1
+        product = {
+            "unique_identifier": product_unique_identifier,
+            "creator": product_creator_title,
+            "version": product_version,
+            "release_version": release_version,
+            "title": product_title,
+            "description": product_description,
+            "serial": serial,
+            "marketplace_url": marketplace_url,
+            "type": product_type,
+        }
+        products.append(product)
 
-            product_title_element = product_element.select_one("div.row h1")
-            product_title = (
-                product_title_element.get_text().strip()
-                if product_title_element
-                else ""
+    for product in products:
+        print(
+            "\n{}\n\t\t"
+            "Creator: {}\n\t\t"
+            "Release: {}\n\t\t"
+            "Serial: {}\n\t\t"
+            "Version: {}\n\t\t"
+            "Type: {}\n\t\t"
+            "Title: {}\n\t\t"
+            "Description: \n\t\t\t\t{}\n\t\t"
+            "URL: {}\n\t\t".format(
+                product["unique_identifier"],
+                product["creator"],
+                product["release_version"],
+                product["serial"],
+                product["version"],
+                product["type"],
+                product["title"],
+                product["description"].replace("\n", "\n\t\t\t\t"),
+                product["marketplace_url"],
             )
-
-            product_version_element = product_element.select_one(
-                "ul.info li:nth-child(1)"
-            )
-            product_version = (
-                product_version_element.get_text().strip()
-                if product_version_element
-                else ""
-            )
-
-            product_pricing_element = product_element.select_one("p.pricing span.price")
-            product_pricing = (
-                product_pricing_element.get_text().strip()
-                if product_pricing_element
-                else ""
-            )
-
-            product_info_element = product_element.select_one("p.delivery")
-            product_info = (
-                product_info_element.get_text().strip() if product_info_element else ""
-            )
-
-            product_description_element = product_element.select_one("p.description")
-            product_description = (
-                product_description_element.get_text().strip()
-                if product_description_element
-                else ""
-            )
-
-            # Get more detailed information on this listing
-            marketplace_url_element = product_title_element.select_one("a")
-            marketplace_url = marketplace_url_element.get("href")
-            listing_response = requests.get(
-                "https://aws.amazon.com{}".format(marketplace_url)
-            )
-            listing_page_content = listing_response.content
-            listing_page_soup = BeautifulSoup(
-                listing_page_content, features="html.parser"
-            )
-            fullfillment_options_element = listing_page_soup.select_one(
-                "div.pdp-attributes div.fulfillment-options ul li:nth-child(1)"
-            )
-            fullfillment_options = (
-                fullfillment_options_element.get_text().strip()
-                if fullfillment_options_element
-                else ""
-            )
-
-            release_version = ""
-            serial = ""
-            version_regex = (
-                r".*?(?P<release_version>\d\d\.\d\d?)"
-                r".*?(?P<serial>\d\d\d\d\d\d\d\d(\.\d{1,2})?).*?"
-            )
-
-            match = re.match(version_regex, product_version)
-
-            if match:
-                attrs = match.groupdict()
-                release_version = attrs.get("release_version", None)
-                serial = attrs.get("serial", None)
-
-            product_unique_identifier = "{} ({}) - {}".format(
-                product_title, fullfillment_options, serial
-            )
-            product = {
-                "unique_identifier": product_unique_identifier,
-                "version": product_version,
-                "release_version": release_version,
-                "title": product_title,
-                "pricing": product_pricing,
-                "info": product_info,
-                "description": product_description,
-                "product_in_page_order": product_in_page_order,
-                "page_order": page_count,
-                "product_order": product_order,
-                "serial": serial,
-                "marketplace_url": "https://aws.amazon.com{}".format(marketplace_url),
-                "type": fullfillment_options,
-            }
-            products.append(product)
-        return (page_count, products)
-
-    parallel_products = Parallel(n_jobs=-1)(
-        delayed(scrape_marketplace)(page_link) for page_link in page_links
-    )
-    sorted_parallel_products = sorted(parallel_products, key=lambda tup: tup[0])
-    print("Public profile URL: {}".format(public_profile_url))
-    for page, products_per_page in sorted_parallel_products:
-        for product in products_per_page:
-            print(
-                "\n{}\n\t\t"
-                "Release: {}\n\t\t"
-                "Serial: {}\n\t\t"
-                "Version: {}\n\t\t"
-                "Type: {}\n\t\t"
-                "Page: {} \n\t\t"
-                "Slot: {} \n\t\t"
-                "Title: {}\n\t\t"
-                "Description: \n\t\t\t\t{}\n\t\t"
-                "URL: {}\n\t\t".format(
-                    product["unique_identifier"],
-                    product["release_version"],
-                    product["serial"],
-                    product["version"],
-                    product["type"],
-                    product["page_order"],
-                    product["product_order"],
-                    product["title"],
-                    product["description"].replace("\n", "\n\t\t\t\t"),
-                    product["marketplace_url"],
-                )
-            )
+        )
 
 
 def _streams_get_image(region, suite, arch):

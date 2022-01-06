@@ -6,6 +6,5 @@ pytest
 selenium==3.141.0
 selenium-wire==1.0.11
 requests
-beautifulsoup4
 joblib
 prettytable
